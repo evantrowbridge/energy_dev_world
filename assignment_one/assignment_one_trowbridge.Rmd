@@ -2,29 +2,143 @@
 title: "Assignment_One"
 author: "Evan Trowbridge"
 date: "4/24/2021"
-output: pdf_document
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(janitor)
+library(tidyverse)
+library(skimr) # For reviewing data
+library(plm)
+library(stargazer)
 ```
 
-## Including Plots
+```{r message=FALSE, warning=FALSE, include=FALSE}
+night_light_import <- read_csv("assignment1_nightlights.csv")
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+df_light <- night_light_import %>% clean_names()
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Part A
+
+```{r}
+df_2a <- df_light %>% filter(date==2012)
+
+# Figure 1: Population
+df_2a %>%
+  ggplot(aes(x = log_population, y = log_dmsp)) +
+  geom_point() +
+  labs(
+    x = "Population (Logged)",
+    y = "Nighlight Intensity (Logged)",
+    title = "Figure 1: Nightlight Intensity by Population",
+    subtitle = "All values are logged"
+  )
+
+# Figure 2: GDP
+df_2a %>%
+  ggplot(aes(x = log_gdp, y = log_dmsp)) +
+  geom_point() +
+  labs(
+    x = "GDP (Logged)",
+    y = "Nighlight Intensity (Logged)",
+    title = "Figure 2: Nightlight Intensity by GDP",
+    subtitle = "All values are logged"
+  )
+
+# Figure 2: Electricity Demand
+df_2a %>%
+  ggplot(aes(x = log_elec, y = log_dmsp)) +
+  geom_point() +
+  labs(
+    x = "Electricity Demand (Logged)",
+    y = "Nighlight Intensity (Logged)",
+    title = "Figure 3: Nightlight Intensity by Electricity Demand",
+    subtitle = "All values are logged"
+  )
+
+```
+
+Part B
+
+```{r question_2b}
+df_2b <- df_light
+
+# Using set.seed to may results reproducible
+set.seed(123)
+
+# Selecting the 150 countries
+df_150_countries <- df_2b %>% 
+  select(country) %>% 
+  distinct() %>% 
+  sample_n(150) %>% 
+  mutate(training_group = TRUE)
+
+df_2b <- left_join(df_2b, df_150_countries, by = "country") %>% 
+  distinct() %>% 
+  mutate(
+    training_group = 
+      if_else(training_group == TRUE, TRUE, FALSE, missing = FALSE),
+    date = as_factor(date)) %>% 
+  filter(
+    !is.na(log_gdp) &
+    !is.na(log_population) & 
+    !is.na(log_dmsp))
+
+# Converting to plm indexed dataframe
+p_2b <- pdata.frame(df_2b, index  = c("date")) %>% 
+  filter(
+    !is.na(log_gdp) & 
+    !is.na(log_population) & 
+    !is.na(log_dmsp)) %>% 
+  select(date, log_gdp, log_population, log_dmsp, training_group) 
+
+# Dataframe for countries in training group
+p_2b_150 <- p_2b %>% filter(training_group==TRUE)
+
+# Dataframe for countries in prediction group
+p_2b_30 <- p_2b %>% filter(training_group==FALSE) 
+
+# Regression model
+#   I use 0 as the intercept since this uses fixed effects
+#   Reference: https://stackoverflow.com/questions/65702581/predict-out-of-sample-on-fixed-effects-model
+gdp_mod <- plm(log_gdp ~ 0 + log_population + log_dmsp,
+               data = p_2b_150,
+               model = "within")
+
+summary(gdp_mod)
+stargazer(gdp_mod, title = "Results of 150-Country Sample")
+
+p_2b_30 <- predict(gdp_mod, newdata = p_2b_30) %>% 
+  tibble() %>% 
+  rename(pred_value = ".") %>%
+  bind_cols(p_2b_30)
+
+cor(p_2b_30$log_gdp, p_2b_30$pred_value)
+
+p_2b_30 %>%
+  ggplot(aes(x=pred_value, y =log_gdp)) +
+  geom_point() +
+  labs(
+    x = "Predicted Value: GDP (Logged)",
+    y = "Observed Value: GDP (Logged)",
+    title = "Figure 4: Predicted Values and Observed Values",
+    subtitle = "For 30 Countries Not in Training Data"
+  )
+
+```
+
+```{r q2b_regression, results = "asis"}
+stargazer(gdp_mod, title = "Results of 150-Country Sample", type = "latex")
+```
+
