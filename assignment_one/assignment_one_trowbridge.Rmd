@@ -116,9 +116,6 @@ gdp_mod <- plm(log_gdp ~ 0 + log_population + log_dmsp,
                data = p_2b_150,
                model = "within")
 
-summary(gdp_mod)
-stargazer(gdp_mod, title = "Results of 150-Country Sample")
-
 p_2b_30 <- predict(gdp_mod, newdata = p_2b_30) %>% 
   tibble() %>% 
   rename(pred_value = ".") %>%
@@ -140,5 +137,38 @@ p_2b_30 %>%
 
 ```{r q2b_regression, results = "asis"}
 stargazer(gdp_mod, title = "Results of 150-Country Sample", type = "latex")
+```
+```{r}
+df_2c <- df_light
+
+df_2c <- df_2c %>% 
+  mutate(date = factor(date)) %>%
+# Adding each country's average Log GDP
+  group_by(country) %>%
+  mutate(avg_country_gdp = mean(log_gdp, na.rm = TRUE)) %>%
+  ungroup() %>% 
+  filter(
+    !is.na(log_gdp) & 
+    !is.na(dictator) & 
+    !is.na(log_dmsp)) %>% 
+  select(avg_country_gdp, date, log_gdp, log_dmsp, dictator, country) 
+
+# Converting to plm indexed dataframe
+p_2c <- pdata.frame(df_2c, index  = c("date", "avg_country_gdp")) %>% 
+  filter(
+    !is.na(log_gdp) & 
+    !is.na(dictator) & 
+    !is.na(log_dmsp)) %>% 
+  select(date, avg_country_gdp, log_gdp, log_dmsp, dictator) 
+
+df_2c_2 <- df_2c %>% distinct()
+
+gdp_mod_2c <- plm(log_gdp ~ log_dmsp*dictator,
+               index = c("avg_country_gdp", "date"),
+               data = df_2c)
+
+nrow(distinct(df_2c_2, avg_country_gdp, date))
+df_2c %>% add_count(avg_country_gdp, date) %>% filter(n > 1) %>% count(country)
+
 ```
 
