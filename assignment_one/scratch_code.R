@@ -276,3 +276,91 @@ temp4 %>%
 #   correlation between columns r - Bing
 # https://www.bing.com/search?q=correlation+between+columns+r&cvid=b29cdfb287044e95ab721fd239910819&aqs=edge..69i57j0l6.4745j0j1&pglt=417&FORM=ANNTA1&PC=U531
 # 
+
+
+################################################################## question 2c
+df_2c <- df_light
+
+df_2c <- df_2c %>% 
+  #mutate(date = factor(date)) %>%
+  # Adding each country's average Log GDP
+  group_by(country) %>%
+  mutate(avg_country_gdp = mean(log_gdp, na.rm = TRUE)) %>%
+  ungroup() %>% 
+  filter(
+    !is.na(log_gdp) & 
+      !is.na(dictator) & 
+      !is.na(log_dmsp)) %>% 
+  select(avg_country_gdp, date, log_gdp, log_dmsp, dictator, country) 
+
+df_2c_2 <- df_2c %>% filter(country!='Bahrain')
+
+# Converting to plm panel indexed dataframe
+p_2c_2 <- pdata.frame(df_2c_2, index  = c("date", "avg_country_gdp")) %>% 
+  filter(
+    !is.na(log_gdp) & 
+      !is.na(dictator) & 
+      !is.na(log_dmsp)) %>% 
+  select(date, avg_country_gdp, log_gdp, log_dmsp, dictator, country) 
+
+gdp_mod_2c_2 <- plm(log_gdp ~ log_dmsp*dictator,
+                    data = p_2c_2,
+                    model = "within")
+
+
+
+
+
+
+
+
+df_2c_3 <- df_2c %>% unite(avg_country_gdp, c(avg_country_gdp, country), remove = FALSE)
+df_2c_3b <- df_2c_3 %>% filter(country!='Bahrain')
+
+p_2c_3 <- pdata.frame(df_2c_3, index  = c("date", "avg_country_gdp")) %>% 
+  filter(
+    !is.na(log_gdp) & 
+      !is.na(dictator) & 
+      !is.na(log_dmsp)) %>% 
+  select(date, avg_country_gdp, log_gdp, log_dmsp, dictator, country) 
+
+p_2c_3b <- pdata.frame(df_2c_3b, index  = c("date", "avg_country_gdp")) %>% 
+  filter(
+    !is.na(log_gdp) & 
+      !is.na(dictator) & 
+      !is.na(log_dmsp)) %>% 
+  select(date, avg_country_gdp, log_gdp, log_dmsp, dictator, country) 
+
+gdp_mod_2c_3 <- plm(log_gdp ~ log_dmsp*dictator,
+                    data = p_2c_3,
+                    model = "within")
+
+gdp_mod_2c_3b <- plm(log_gdp ~ log_dmsp*dictator,
+                     data = p_2c_3b,
+                     model = "within")
+
+
+
+
+
+# Converting to plm panel indexed dataframe
+p_2c_4 <- pdata.frame(df_2c, index  = c("date", "country")) %>% 
+  filter(
+    !is.na(log_gdp) & 
+      !is.na(dictator) & 
+      !is.na(log_dmsp)) %>% 
+  select(date, avg_country_gdp, log_gdp, log_dmsp, dictator, country) 
+
+
+gdp_mod_2c_4 <- plm(log_gdp ~ log_dmsp*dictator,
+                    data = p_2c_4,
+                    model = "within")
+
+
+
+
+
+summary(gdp_mod_2c_2)
+summary(gdp_mod_2c_3)
+summary(gdp_mod_2c_3b)
+summary(gdp_mod_2c_4)

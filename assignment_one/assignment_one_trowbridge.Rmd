@@ -7,7 +7,7 @@ output:
   html_document:
     df_print: paged
 editor_options:
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -19,8 +19,9 @@ library(readr)
 library(janitor)
 library(tidyverse)
 library(skimr) # For reviewing data
-library(plm)
-library(stargazer)
+library(plm) # For panel regressions
+library(stargazer) # For nice regression tables
+library(sf) # For spatial data
 ```
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
@@ -95,7 +96,7 @@ df_2b <- left_join(df_2b, df_150_countries, by = "country") %>%
     !is.na(log_population) & 
     !is.na(log_dmsp))
 
-# Converting to plm indexed dataframe
+# Converting to plm panel indexed dataframe
 p_2b <- pdata.frame(df_2b, index  = c("date")) %>% 
   filter(
     !is.na(log_gdp) & 
@@ -138,37 +139,140 @@ p_2b_30 %>%
 ```{r q2b_regression, results = "asis"}
 stargazer(gdp_mod, title = "Results of 150-Country Sample", type = "latex")
 ```
+
 ```{r}
 df_2c <- df_light
 
 df_2c <- df_2c %>% 
-  mutate(date = factor(date)) %>%
-# Adding each country's average Log GDP
-  group_by(country) %>%
-  mutate(avg_country_gdp = mean(log_gdp, na.rm = TRUE)) %>%
-  ungroup() %>% 
   filter(
     !is.na(log_gdp) & 
     !is.na(dictator) & 
     !is.na(log_dmsp)) %>% 
-  select(avg_country_gdp, date, log_gdp, log_dmsp, dictator, country) 
+  select(date, country, log_gdp, log_dmsp, dictator) 
 
-# Converting to plm indexed dataframe
-p_2c <- pdata.frame(df_2c, index  = c("date", "avg_country_gdp")) %>% 
+# Converting to plm panel indexed dataframe
+p_2c <- pdata.frame(df_2c) %>% 
   filter(
     !is.na(log_gdp) & 
     !is.na(dictator) & 
     !is.na(log_dmsp)) %>% 
-  select(date, avg_country_gdp, log_gdp, log_dmsp, dictator) 
+  select(country, date, log_gdp, log_dmsp, dictator) 
 
-df_2c_2 <- df_2c %>% distinct()
+gdp_mod_2c <- plm(log_gdp ~ log_dmsp * dictator,
+               index = c("country", "date"),
+               data = p_2c,
+               model = "within")
 
-gdp_mod_2c <- plm(log_gdp ~ log_dmsp*dictator,
-               index = c("avg_country_gdp", "date"),
-               data = df_2c)
+summary(gdp_mod_2c)
 
-nrow(distinct(df_2c_2, avg_country_gdp, date))
-df_2c %>% add_count(avg_country_gdp, date) %>% filter(n > 1) %>% count(country)
+df_2c %>% mutate(
+  dictator_text = if_else(
+    dictator == 1,
+    "Dicator",
+    "Not Dictator")) %>%
+  ggplot(aes(x=log_dmsp, y =log_gdp)) +
+  geom_point() +
+  labs(
+    x = "Nighlight Intensity (Logged)",
+    y = "GDP (Logged)",
+    title = "Figure 5: Relationship Between Nightlight Intensity and GDP",
+    subtitle = "Comparing Between Governments With and Without Dictators"
+  ) +
+  facet_grid(cols=vars(dictator_text))
+
 
 ```
 
+```{r q2c_regression, results = "asis"}
+stargazer(gdp_mod_2c, title = "GDP Correlation with Nightlights and Dictatorial Government", type = "latex")
+```
+
+```{r}
+india_shape <- st_read("india_nl.shp")
+
+india_shape %>%
+  ggplot(aes(fill = PERC_ILLT)) +
+  geom_sf(color = NA) +
+  scale_fill_viridis_c(
+    option = "magma", 
+    direction = -1,
+    name = "% Illiterate") +
+  theme_void() +
+  labs(title = "Figure 6: Illiteracy in India by District")
+
+india_shape %>%
+  ggplot(aes(fill = NL)) +
+  geom_sf(color = NA) +
+  scale_fill_viridis_c(
+    name = "Nightlight Brightness") +
+  theme_void() +
+  labs(title = "Figure 7: Nightlight in India by District")
+```
+
+```{r}
+india_shape %>%
+  ggplot(aes(x=NL, y =PERC_ILLT)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = FALSE) +
+  labs(
+    x = "Nightlight Brightness",
+    y = "% Illiterate",
+    title = "Figure 8: Comparing Nightlight Brightness with Illiteracy Rates",
+    subtitle = "By District in India"
+  )
+```
+
+```{r}
+state_gdp <- read_csv("state_gdp.csv")
+
+df_avg_nl <- india_shape %>% 
+  tibble() %>% 
+  select(STATE_UT, NL) %>%
+  group_by(STATE_UT) %>%
+  mutate(avg_state_nl = mean(NL)) %>%
+  ungroup() %>% 
+  rename(StateName = STATE_UT) %>%
+  select(StateName, avg_state_nl) %>%
+  distinct() %>%
+  mutate(StateName =
+           if_else(StateName == "Tamilnadu",
+                   "Tamil Nadu",
+                   StateName)) %>%
+  full_join(state_gdp) %>%
+    filter(StateName != "India")
+
+model_2f <- lm(GDP ~ avg_state_nl, data = df_avg_nl)
+
+summary(model_2f)
+
+df_avg_nl %>%
+  ggplot(aes(x=avg_state_nl, y =GDP)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = FALSE) +
+  labs(
+    x = "Nightlight Brightness",
+    y = "GDP",
+    title = "Figure 9: Comparing Nightlight Brightness with GDP",
+    subtitle = "By State in India"
+  )
+
+df_avg_nl_darker <- df_avg_nl %>% filter(avg_state_nl < 1)
+
+model_2f_darker <- lm(GDP ~ avg_state_nl, data = df_avg_nl_darker)
+
+summary(model_2f_darker)
+
+```
+
+```{r q2f_regression, results = "asis"}
+stargazer(model_2f, model_2f_darker, 
+          title = "Indian State GDP Correlation with Nightlight Brightness",
+          covariate.labels = "Avg. State Nightlight Brightness",
+          dep.var.labels = "State GDP",
+          column.labels = c("All States", "States With Brightness < 1"),
+          type = "latex")
+```
+
+Questions: can my entity fixed effect for 2c just be a country and not the average gdp. The results seem the same
+
+iS "NL" nightlight?
